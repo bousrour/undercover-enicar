@@ -12,8 +12,8 @@ function LandingPage() {
   const navigate = useNavigate();
 
   const handleContinue = () => {
-    // Navigate to '/jeu'
-    navigate('/jeu');
+    // Navigate to '/jeu' with pseudo as a URL parameter
+    navigate(`/jeu?pseudo=${pseudo}`);
   };
 
   const handlePseudoChange = (event) => {
