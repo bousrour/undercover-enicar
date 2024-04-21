@@ -6,9 +6,9 @@ function Chat({ socket, username, room }) {
   const [userList, setUserList] = useState([]); 
   const [currentMessage, setCurrentMessage] = useState("");
   const [messageList, setMessageList] = useState([]);
-  const [isChatReady, setIsChatReady] = useState(false); // To control chat display
-  const [isReady, setIsReady] = useState(false); // To track if current user is ready
-
+  const [isChatReady, setIsChatReady] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [assignedWord, setAssignedWord] = useState("");
   const sendMessage = async () => {
     if (currentMessage !== "") {
       const messageData = {
@@ -17,56 +17,78 @@ function Chat({ socket, username, room }) {
         message: currentMessage,
         time: new Date(Date.now()).getHours() + ":" + new Date(Date.now()).getMinutes(),
       };
-  
-      // Only emit the message to the server
       await socket.emit("send_message", messageData);
-      setCurrentMessage(""); // Clear input field after sending
+      setCurrentMessage("");
     }
   };
+
   useEffect(() => {
-    
-    const receiveMessage = (data) => {
+    // Listening for incoming messages
+    socket.on("receive_message", (data) => {
       setMessageList((list) => [...list, data]);
-    };
-
-    socket.on("receive_message", receiveMessage);
-    socket.on("start_chat", () => {
-      setIsChatReady(true);
-      const handleRoomUsers = (users) => {
-            setUserList(users);
-        };
-
-        socket.on("room_users", handleRoomUsers);
     });
 
-    return () => {
-      socket.off("receive_message", receiveMessage);
-      socket.off("start_chat");
-    };
-  }, [socket]);
+    // Room is now ready to start chatting
+    socket.on("start_chat", () => {
+      setIsChatReady(true);
+    });
 
+    // Managing the list of users in the room
+    socket.on("room_users", (users) => {
+      if (Array.isArray(users)) {  // Check if users is indeed an array
+        setUserList(users);
+      } else {
+        console.error('Expected users to be an array, received:', users);
+      }
+    });
+    socket.on("assigned_word", (word) => {
+      setAssignedWord(word); // Listen to the assigned word event
+  });
+    return () => {
+      socket.off("receive_message");
+      socket.off("start_chat");
+      socket.off("room_users");
+      socket.off("assigned_word");
+    };
+  }, [socket,userList]);
+console.log(userList)
   const handleReady = () => {
     setIsReady(true);
     socket.emit("user_ready", { room, username });
   };
 
   return (
-    <div className="chat-window">
+<div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: '100%', padding: '50px' }}>
+<div className="user-list" style={{ marginRight: '200px' ,display: 'flex', flexDirection: 'column'}}>
+                <h1>joueurs</h1>
+                {userList.map((user, index) => (
+                    <Button 
+                        key={index} 
+                        variant={user.ready ? 'success' : 'danger'}
+                        
+                        style={{ margin: '5px' }} // Add some margin between buttons
+                    >
+                        {user.username}
+                    </Button>
+                ))}
+            </div>
+      <div className="chat-window">
       {!isChatReady && (
-      <Button onClick={handleReady} disabled={isReady} variant="success"> {isReady ? "en attente d'autres joueurs..." : "Pret a jouer!"}</Button>
+        <Button onClick={handleReady} disabled={isReady} variant="success">
+          {isReady ? "Waiting for other players..." : "Ready to play!"}
+        </Button>
       )}
       {isChatReady && (
         <>
-          <div className="chat-header"><p>Live Chat</p>  <p>Users in Room: {userList.join(', ')}</p> </div>
+          <div className="chat-header"><p>Live Chat</p></div>
           <div className="chat-body">
             <ScrollToBottom className="message-container">
-            {messageList.map((messageContent) => {
-            return (
-              <div
-                className="message"
-                id={username === messageContent.author ? "you" : "other"}
-              >
-                <div>
+              {messageList.map((messageContent, index) => (
+                <div
+                  key={index}
+                  className="message"
+                  id={username === messageContent.author ? "you" : "other"}
+                >
                   <div className="message-content">
                     <p>{messageContent.message}</p>
                   </div>
@@ -75,9 +97,7 @@ function Chat({ socket, username, room }) {
                     <p id="author">{messageContent.author}</p>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              ))}
             </ScrollToBottom>
           </div>
           <div className="chat-footer">
@@ -87,6 +107,11 @@ function Chat({ socket, username, room }) {
         </>
       )}
     </div>
+   <div> 
+    <h1>Votre mot</h1>
+    <p>{assignedWord}</p>
+     </div>
+   </div>
   );
 }
 
