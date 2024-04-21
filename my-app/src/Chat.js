@@ -11,6 +11,8 @@ function Chat({ socket, username, room }) {
   const [assignedWord, setAssignedWord] = useState("");
   const [currentTurn, setCurrentTurn] = useState("");
   const [isMyTurn, setIsMyTurn] = useState(false);
+  const [votes, setVotes] = useState({}); // New state to track votes
+  const [enableVoting, setEnableVoting] = useState(false);
   const sendMessage = async () => {
     if (currentMessage !== "") {
       const messageData = {
@@ -25,7 +27,15 @@ function Chat({ socket, username, room }) {
   };
 
   useEffect(() => {
+    socket.on("enable_voting", () => {
+      setEnableVoting(true);
+  });
     // Listening for incoming messages
+    socket.on("update_votes", (updatedVotes) => {
+      console.log("Received updated votes:", updatedVotes);
+      setVotes(updatedVotes);
+  });
+  
     socket.on("receive_message", (data) => {
       setMessageList((list) => [...list, data]);
     });
@@ -37,7 +47,7 @@ function Chat({ socket, username, room }) {
     socket.on("turn_update", (data) => {
       setCurrentTurn(data.username);
       setIsMyTurn(data.username === username);
-   console.log(isMyTurn);
+   
     });
 
     // Managing the list of users in the room
@@ -52,98 +62,110 @@ function Chat({ socket, username, room }) {
       setAssignedWord(word); // Listen to the assigned word event
   });
     return () => {
+      socket.off("enable_voting");
       socket.off("receive_message");
       socket.off("start_chat");
       socket.off("room_users");
       socket.off("assigned_word");
       socket.off("turn_update");
+      socket.off("update_votes");
     };
-  }, [socket,userList,isMyTurn]);
-
-console.log(isMyTurn)
+  }, [socket,userList,enableVoting]);
+  const castVote = (userId) => {
+    console.log(`Casting vote for user ID ${userId} in room ${room}`);
+    socket.emit("cast_vote", { room, userId });
+};
+console.log(enableVoting)
   const handleReady = () => {
     setIsReady(true);
     socket.emit("user_ready", { room, username });
   };
 
-  return (<>
-<div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: '100%', padding: '50px' }}>
-<div className="user-list" style={{ marginRight: '200px' ,display: 'flex', flexDirection: 'column'}}>
-                <h1>joueurs</h1>
+  return (
+    <>
+        <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: '100%', padding: '50px' }}>
+            <div className="user-list" style={{ marginRight: '200px', display: 'flex', flexDirection: 'column' }}>
+                <h1>Joueurs</h1>
                 {userList.map((user, index) => (
-                    <Button 
-                        key={index} 
+                    <Button
+                        key={index}
                         variant={user.ready ? 'success' : 'danger'}
-                        
-                        style={{ margin: '5px' }} // Add some margin between buttons
+                        style={{ margin: '5px' }}
                     >
                         {user.username}
                     </Button>
                 ))}
             </div>
-      <div className="chat-window">
-      {!isChatReady && (
-        <Button onClick={handleReady} disabled={isReady} variant="success">
-          {isReady ? "Waiting for other players..." : "pres a jouer!"}
-        </Button>
-      )}
-      {isChatReady && (
-        <>
- <div className="chat-header">
-              <p>{currentTurn ? `tour de ${currentTurn}` : "Waiting..."}</p>
-            </div>          <div className="chat-body">
-            <ScrollToBottom className="message-container">
-              {messageList.map((messageContent, index) => (
-                <div
-                  key={index}
-                  className="message"
-                  id={username === messageContent.author ? "you" : "other"}
-                >
-                  <div className="message-content">
-                    <p>{messageContent.message}</p>
-                  </div>
-                  <div className="message-meta">
-                    <p id="time">{messageContent.time}</p>
-                    <p id="author">{messageContent.author}</p>
-                  </div>
-                </div>
-              ))}
-            </ScrollToBottom>
-          </div>
-          <div className="chat-footer">
-                <input
-                  type="text"
-                  value={currentMessage}
-                  placeholder={isMyTurn ? "Écrivez un message..." : "Attendre votre tour"}
-                  onChange={(e) => setCurrentMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && isMyTurn && sendMessage()}
-                  disabled={!isMyTurn}
-                />
-                <button onClick={sendMessage} disabled={!isMyTurn}>&#9658;</button>
-              </div>
-        </>
-      )}
-    </div>
-   <div style={{ marginLeft: '200px' }}> 
-    <h1>Votre mot</h1>
-    <Button variant="light">{assignedWord}</Button>
-     </div>
-   </div>
-   <div className="user-list" style={{ marginRight: '200px' ,display: 'flex', flexDirection: 'row' ,justifyContent: 'center'}}>
-                <h1>voter</h1>
-                {userList.map((user, index) => (
-                    <Button 
-                        key={index} 
-                        variant={user.ready ? 'success' : 'danger'}
-                        
-                        style={{ margin: '5px' }} // Add some margin between buttons
-                    >
-                        {user.username}
+            <div className="chat-window">
+                {!isChatReady && (
+                    <Button onClick={handleReady} disabled={isReady} variant="success">
+                        {isReady ? "Waiting for other players..." : "Prêt à jouer!"}
                     </Button>
+                )}
+                {isChatReady && (
+                    <>
+                        <div className="chat-header">
+                            <p>{currentTurn ? `Tour de ${currentTurn}` : "Waiting..."}</p>
+                        </div>
+                        <div className="chat-body">
+                            <ScrollToBottom className="message-container">
+                                {messageList.map((messageContent, index) => (
+                                    <div
+                                        key={index}
+                                        className="message"
+                                        id={username === messageContent.author ? "you" : "other"}
+                                    >
+                                        <div className="message-content">
+                                            <p>{messageContent.message}</p>
+                                        </div>
+                                        <div className="message-meta">
+                                            <p id="time">{messageContent.time}</p>
+                                            <p id="author">{messageContent.author}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </ScrollToBottom>
+                        </div>
+                        <div className="chat-footer">
+                            <input
+                                type="text"
+                                value={currentMessage}
+                                placeholder={isMyTurn ? "Écrivez un message..." : "Attendre votre tour"}
+                                onChange={(e) => setCurrentMessage(e.target.value)}
+                                onKeyPress={(e) => e.key === "Enter" && isMyTurn && sendMessage()}
+                                disabled={!isMyTurn}
+                            />
+                            <button onClick={sendMessage} disabled={!isMyTurn}>&#9658;</button>
+                        </div>
+                    </>
+                )}
+            </div>
+            <div style={{ marginLeft: '200px' }}>
+                <h1>Votre mot</h1>
+                <Button variant="light">{assignedWord}</Button>
+            </div>
+        </div>
+        {enableVoting && (
+            <div className="user-list" style={{ marginRight: '200px', display: 'flex', flexDirection: 'column' }}>
+                <h1>Qui est l'intrue</h1>
+                {userList.map((user, index) => (
+                    <div key={index}>
+                        <Button variant={user.ready ? 'success' : 'danger'} style={{ margin: '5px' }}>
+                            {user.username}
+                        </Button>
+                        {username !== user.username && (
+                            <Button variant="primary" onClick={() => castVote(user.id)} style={{ margin: '5px' }}>
+                                Voter
+                            </Button>
+                        )}
+                        <span>Votes: {votes[user.id]}</span>
+                    </div>
                 ))}
             </div>
-   </>
-  );
+        )}
+    </>
+);
+
 }
 
 export default Chat;

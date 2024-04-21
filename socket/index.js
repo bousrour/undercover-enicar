@@ -38,7 +38,8 @@ const io = new Server(server, {
 
 const roomUsers = {};  // User data by room
 const turnQueue = {};  // Queue for managing turns
-
+const userVotes = {}; 
+const turnsTaken = {}; 
 io.on("connection", (socket) => {
   socket.on("join_room", (data) => {
     const { room, username } = data;
@@ -46,6 +47,8 @@ io.on("connection", (socket) => {
     if (!roomUsers[room]) {
       roomUsers[room] = {};
       turnQueue[room] = [];
+      userVotes[room] = {}; 
+      turnsTaken[room] = 0;
     }
     roomUsers[room][socket.id] = { id: socket.id, username: username, ready: false };
     turnQueue[room].push(socket.id); // Add user to turn queue
@@ -62,12 +65,15 @@ io.on("connection", (socket) => {
 
   socket.on("send_message", (data) => {
     const { room } = data;
-    // Check if it's the sender's turn
     if (turnQueue[room][0] === socket.id) {
-      io.to(room).emit("receive_message", data);
-      advanceTurn(room); // Move to the next turn
+        io.to(room).emit("receive_message", data);
+        advanceTurn(room);
+        turnsTaken[room]++;
+        if (turnsTaken[room] >= Object.keys(roomUsers[room]).length) {
+          io.to(room).emit("enable_voting");
+        }
     }
-  });
+});
   socket.on("user_ready", (data) => {
     const { room } = data;
     if (room in roomUsers && socket.id in roomUsers[room]) {
@@ -91,20 +97,35 @@ io.on("connection", (socket) => {
       }
     }
   });
+ 
+  socket.on("cast_vote", (data) => {
+    console.log(`Vote received for userId ${data.userId} from ${socket.id} in room ${data.room}`);
+    if (!userVotes[data.room][socket.id]) { 
+        userVotes[data.room][socket.id] = data.userId;
+        countVotes(data.room);
+    }
+});
   socket.on("disconnect", () => {
     Object.keys(roomUsers).forEach(room => {
       if (roomUsers[room][socket.id]) {
         delete roomUsers[room][socket.id];
-        turnQueue[room] = turnQueue[room].filter(id => id !== socket.id); // Remove from turn queue
+        turnQueue[room] = turnQueue[room].filter(id => id !== socket.id);
         if (turnQueue[room].length > 0) {
-          updateTurn(room); // Update turn if there are still users
+          updateTurn(room);
         }
         broadcastUserList(room);
       }
     });
+
+    // Clean up votes
+    Object.keys(userVotes).forEach(room => {
+      if (userVotes[room][socket.id]) {
+        delete userVotes[room][socket.id];
+        countVotes(room);
+      }
+    });
   });
 });
-
 function broadcastUserList(room) {
   io.to(room).emit("room_users", Object.values(roomUsers[room]));
 }
@@ -129,7 +150,17 @@ function updateTurn(room) {
     io.to(room).emit("turn_update", { username: currentTurnUser });
   }
 }
-
+function countVotes(room) {
+  const voteCounts = {};
+  Object.values(userVotes[room]).forEach(vote => {
+      voteCounts[vote] = (voteCounts[vote] || 0) + 1;
+  });
+  io.to(room).emit("update_votes", voteCounts);
+}
+function advanceTurn(room) {
+  turnQueue[room].push(turnQueue[room].shift()); // Rotate the queue
+  updateTurn(room);
+}
 server.listen(3001, () => {
   console.log("SERVER RUNNING");
 });
