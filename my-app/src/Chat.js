@@ -9,6 +9,7 @@ function Chat({ socket, username, room }) {
   const [isChatReady, setIsChatReady] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [assignedWord, setAssignedWord] = useState("");
+  const [currentTurn, setCurrentTurn] = useState("");
   const sendMessage = async () => {
     if (currentMessage !== "") {
       const messageData = {
@@ -32,6 +33,9 @@ function Chat({ socket, username, room }) {
     socket.on("start_chat", () => {
       setIsChatReady(true);
     });
+    socket.on("turn_update", (data) => {
+      setCurrentTurn(data.username);
+    });
 
     // Managing the list of users in the room
     socket.on("room_users", (users) => {
@@ -49,6 +53,7 @@ function Chat({ socket, username, room }) {
       socket.off("start_chat");
       socket.off("room_users");
       socket.off("assigned_word");
+      socket.off("turn_update");
     };
   }, [socket,userList]);
 console.log(userList)
@@ -75,13 +80,14 @@ console.log(userList)
       <div className="chat-window">
       {!isChatReady && (
         <Button onClick={handleReady} disabled={isReady} variant="success">
-          {isReady ? "Waiting for other players..." : "Ready to play!"}
+          {isReady ? "Waiting for other players..." : "pres a jouer!"}
         </Button>
       )}
       {isChatReady && (
         <>
-          <div className="chat-header"><p>Live Chat</p></div>
-          <div className="chat-body">
+ <div className="chat-header">
+              <p>{currentTurn ? `tour de ${currentTurn}` : "Waiting..."}</p>
+            </div>          <div className="chat-body">
             <ScrollToBottom className="message-container">
               {messageList.map((messageContent, index) => (
                 <div

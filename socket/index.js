@@ -37,27 +37,37 @@ const io = new Server(server, {
 });
 
 const roomUsers = {};  // User data by room
+const turnQueue = {};  // Queue for managing turns
 
 io.on("connection", (socket) => {
-  console.log(`User Connected: ${socket.id}`);
-
-  const broadcastUserList = (room) => {
-    if (room in roomUsers) {
-      io.to(room).emit("room_users", Object.values(roomUsers[room]));
-    }
-  };
-
   socket.on("join_room", (data) => {
     const { room, username } = data;
     socket.join(room);
     if (!roomUsers[room]) {
       roomUsers[room] = {};
+      turnQueue[room] = [];
     }
     roomUsers[room][socket.id] = { id: socket.id, username: username, ready: false };
-    console.log(`User with ID: ${socket.id}, Username: ${username} joined room: ${room}`);
+    turnQueue[room].push(socket.id); // Add user to turn queue
     broadcastUserList(room);
+    updateTurn(room); // Update turn whenever someone joins
   });
 
+  socket.on("user_ready", (data) => {
+    const { room } = data;
+    roomUsers[room][socket.id].ready = true;
+    broadcastUserList(room);
+    startGameIfReady(room);
+  });
+
+  socket.on("send_message", (data) => {
+    const { room } = data;
+    // Check if it's the sender's turn
+    if (turnQueue[room][0] === socket.id) {
+      io.to(room).emit("receive_message", data);
+      advanceTurn(room); // Move to the next turn
+    }
+  });
   socket.on("user_ready", (data) => {
     const { room } = data;
     if (room in roomUsers && socket.id in roomUsers[room]) {
@@ -81,26 +91,44 @@ io.on("connection", (socket) => {
       }
     }
   });
-
-  socket.on("send_message", (data) => {
-    io.to(data.room).emit("receive_message", data);
-  });
-
   socket.on("disconnect", () => {
     Object.keys(roomUsers).forEach(room => {
       if (roomUsers[room][socket.id]) {
-        const userData = roomUsers[room][socket.id];
         delete roomUsers[room][socket.id];
-        console.log(`User Disconnected: ${socket.id}`);
-        if (Object.keys(roomUsers[room]).length === 0) {
-          delete roomUsers[room];
-        } else {
-          broadcastUserList(room);
+        turnQueue[room] = turnQueue[room].filter(id => id !== socket.id); // Remove from turn queue
+        if (turnQueue[room].length > 0) {
+          updateTurn(room); // Update turn if there are still users
         }
+        broadcastUserList(room);
       }
     });
   });
 });
+
+function broadcastUserList(room) {
+  io.to(room).emit("room_users", Object.values(roomUsers[room]));
+}
+
+function startGameIfReady(room) {
+  const allReady = Object.values(roomUsers[room]).every(user => user.ready);
+  if (allReady) {
+    io.to(room).emit("start_chat");
+    updateTurn(room);
+  }
+}
+
+function advanceTurn(room) {
+  turnQueue[room].push(turnQueue[room].shift()); // Move current to the end
+  updateTurn(room);
+}
+
+function updateTurn(room) {
+  if (turnQueue[room].length > 0) {
+    const currentTurnId = turnQueue[room][0];
+    const currentTurnUser = roomUsers[room][currentTurnId].username;
+    io.to(room).emit("turn_update", { username: currentTurnUser });
+  }
+}
 
 server.listen(3001, () => {
   console.log("SERVER RUNNING");
