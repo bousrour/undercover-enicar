@@ -168,6 +168,7 @@ function evaluateVotes(room, voteCounts) {
   let mostVotes = 0;
   let mostVotedUserId = null;
 
+  // Determine who got the most votes
   for (let userId in voteCounts) {
     if (voteCounts[userId] > mostVotes) {
       mostVotes = voteCounts[userId];
@@ -177,10 +178,18 @@ function evaluateVotes(room, voteCounts) {
 
   if (mostVotedUserId && roomUsers[room][mostVotedUserId]) {
     if (roomUsers[room][mostVotedUserId].isImposter) {
-      io.to(room).emit("game_over", { winner: "others", imposter: mostVotedUserId });
+      // If the imposter is caught, send them a "you lost" message and "you won" to others
+      Object.keys(roomUsers[room]).forEach(id => {
+        if (id === mostVotedUserId) {
+          io.to(id).emit("you_lost", { message: "Vous avez perdu!" });
+        } else {
+          io.to(id).emit("congratulations", { message: "Félicitations! Vous avez gagné!" });
+        }
+      });
       resetGame(room);
     } else {
-      io.to(mostVotedUserId).emit("you_lost", { message: "vous avez perdu!" });
+      // If a non-imposter was wrongly voted out, continue the game
+      io.to(mostVotedUserId).emit("you_lost", { message: "Vous avez été éliminé et avez perdu!" });
       delete roomUsers[room][mostVotedUserId];
       turnQueue[room] = turnQueue[room].filter(id => id !== mostVotedUserId);
       broadcastUserList(room);
@@ -189,12 +198,13 @@ function evaluateVotes(room, voteCounts) {
       checkForImposterWin(room);
     }
   } else {
-    io.to(room).emit("error", { message: "Voted user has disconnected or does not exist." });
+    // Handle case where the most voted user might have disconnected
+    io.to(room).emit("error", { message: "The voted user has disconnected or does not exist." });
   }
 
+  // Reset the votes for this room
   userVotes[room] = {};
 }
-
 function checkForImposterWin(room) {
   const remainingPlayers = Object.keys(roomUsers[room]);
   if (remainingPlayers.length === 2) {
