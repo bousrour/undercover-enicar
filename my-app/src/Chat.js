@@ -10,6 +10,7 @@ function Chat({ socket, username, room }) {
   const [isReady, setIsReady] = useState(false);
   const [assignedWord, setAssignedWord] = useState("");
   const [currentTurn, setCurrentTurn] = useState("");
+  const [isMyTurn, setIsMyTurn] = useState(false);
   const sendMessage = async () => {
     if (currentMessage !== "") {
       const messageData = {
@@ -35,6 +36,8 @@ function Chat({ socket, username, room }) {
     });
     socket.on("turn_update", (data) => {
       setCurrentTurn(data.username);
+      setIsMyTurn(data.username === username);
+   console.log(isMyTurn);
     });
 
     // Managing the list of users in the room
@@ -55,14 +58,15 @@ function Chat({ socket, username, room }) {
       socket.off("assigned_word");
       socket.off("turn_update");
     };
-  }, [socket,userList]);
-console.log(userList)
+  }, [socket,userList,isMyTurn]);
+
+console.log(isMyTurn)
   const handleReady = () => {
     setIsReady(true);
     socket.emit("user_ready", { room, username });
   };
 
-  return (
+  return (<>
 <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: '100%', padding: '50px' }}>
 <div className="user-list" style={{ marginRight: '200px' ,display: 'flex', flexDirection: 'column'}}>
                 <h1>joueurs</h1>
@@ -107,9 +111,16 @@ console.log(userList)
             </ScrollToBottom>
           </div>
           <div className="chat-footer">
-            <input type="text" value={currentMessage} placeholder="Hey..." onChange={(e) => setCurrentMessage(e.target.value)} onKeyPress={(e) => e.key === "Enter" && sendMessage()} />
-            <button onClick={sendMessage}>&#9658;</button>
-          </div>
+                <input
+                  type="text"
+                  value={currentMessage}
+                  placeholder={isMyTurn ? "Écrivez un message..." : "Attendre votre tour"}
+                  onChange={(e) => setCurrentMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && isMyTurn && sendMessage()}
+                  disabled={!isMyTurn}
+                />
+                <button onClick={sendMessage} disabled={!isMyTurn}>&#9658;</button>
+              </div>
         </>
       )}
     </div>
@@ -118,6 +129,20 @@ console.log(userList)
     <Button variant="light">{assignedWord}</Button>
      </div>
    </div>
+   <div className="user-list" style={{ marginRight: '200px' ,display: 'flex', flexDirection: 'row' ,justifyContent: 'center'}}>
+                <h1>voter</h1>
+                {userList.map((user, index) => (
+                    <Button 
+                        key={index} 
+                        variant={user.ready ? 'success' : 'danger'}
+                        
+                        style={{ margin: '5px' }} // Add some margin between buttons
+                    >
+                        {user.username}
+                    </Button>
+                ))}
+            </div>
+   </>
   );
 }
 
