@@ -1,11 +1,19 @@
 const express = require("express");
-const app = express();
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+
+const app = express();
 app.use(cors());
 
 const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST"],
+  },
+});
+
 const mots = [
   ["Pomme", "Poire"],
   ["Chaise", "Canapé"],
@@ -27,19 +35,14 @@ const mots = [
   ["Train", "Bus"],
   ["Veste", "Manteau"],
   ["Chocolat", "Bonbon"]
-]
-;
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"],
-  },
-});
+];
 
-const roomUsers = {};  // User data by room
-const turnQueue = {};  // Queue for managing turns
-const userVotes = {}; 
-const turnsTaken = {}; 
+const roomUsers = {};
+const turnQueue = {};
+const userVotes = {};
+const turnsTaken = {};
+const userWords = {};
+
 io.on("connection", (socket) => {
   socket.on("join_room", (data) => {
     const { room, username } = data;
@@ -47,13 +50,14 @@ io.on("connection", (socket) => {
     if (!roomUsers[room]) {
       roomUsers[room] = {};
       turnQueue[room] = [];
-      userVotes[room] = {}; 
+      userVotes[room] = {};
       turnsTaken[room] = 0;
+      userWords[room] = {};
     }
     roomUsers[room][socket.id] = { id: socket.id, username: username, ready: false };
-    turnQueue[room].push(socket.id); // Add user to turn queue
+    turnQueue[room].push(socket.id);
     broadcastUserList(room);
-    updateTurn(room); // Update turn whenever someone joins
+    updateTurn(room);
   });
 
   socket.on("user_ready", (data) => {
@@ -70,39 +74,23 @@ io.on("connection", (socket) => {
         advanceTurn(room);
         turnsTaken[room]++;
         if (turnsTaken[room] >= Object.keys(roomUsers[room]).length) {
-          io.to(room).emit("enable_voting");
+            // All players have taken their turn, enable voting
+            io.to(room).emit("enable_voting");
+            // Reset the turnsTaken for the next round
+            turnsTaken[room] = 0;
         }
     }
 });
-  socket.on("user_ready", (data) => {
-    const { room } = data;
-    if (room in roomUsers && socket.id in roomUsers[room]) {
-      roomUsers[room][socket.id].ready = true;
-      console.log(`User ${roomUsers[room][socket.id].username} is ready in room: ${room}`);
-      broadcastUserList(room);
-
-      const allReady = Object.values(roomUsers[room]).every(user => user.ready);
-      if (allReady) {
-        const wordPair = mots[Math.floor(Math.random() * mots.length)];
-        const userKeys = Object.keys(roomUsers[room]);
-        const specialUserIndex = Math.floor(Math.random() * userKeys.length);
-
-        userKeys.forEach((key, index) => {
-          const wordToSend = index === specialUserIndex ? wordPair[1] : wordPair[0];
-          io.to(key).emit("assigned_word", wordToSend);
-        });
-
-        console.log(`Words sent to room: ${room}`);
-        io.to(room).emit("start_chat");
-      }
-    }
-  });
- 
   socket.on("cast_vote", (data) => {
-    console.log(`Vote received for userId ${data.userId} from ${socket.id} in room ${data.room}`);
-    if (!userVotes[data.room][socket.id]) { 
-        userVotes[data.room][socket.id] = data.userId;
-        countVotes(data.room);
+    const { room, userId } = data;
+    // Ensure that the user hasn't already voted
+    if (!userVotes[room][socket.id]) {
+        userVotes[room][socket.id] = userId;
+
+        // Check if all users have voted
+        if (Object.keys(userVotes[room]).length === Object.keys(roomUsers[room]).length) {
+            countVotes(room);
+        }
     }
 });
   socket.on("disconnect", () => {
@@ -110,14 +98,12 @@ io.on("connection", (socket) => {
       if (roomUsers[room][socket.id]) {
         delete roomUsers[room][socket.id];
         turnQueue[room] = turnQueue[room].filter(id => id !== socket.id);
+        broadcastUserList(room);
         if (turnQueue[room].length > 0) {
           updateTurn(room);
         }
-        broadcastUserList(room);
       }
     });
-
-    // Clean up votes
     Object.keys(userVotes).forEach(room => {
       if (userVotes[room][socket.id]) {
         delete userVotes[room][socket.id];
@@ -126,6 +112,7 @@ io.on("connection", (socket) => {
     });
   });
 });
+
 function broadcastUserList(room) {
   io.to(room).emit("room_users", Object.values(roomUsers[room]));
 }
@@ -133,13 +120,31 @@ function broadcastUserList(room) {
 function startGameIfReady(room) {
   const allReady = Object.values(roomUsers[room]).every(user => user.ready);
   if (allReady) {
-    io.to(room).emit("start_chat");
-    updateTurn(room);
+    assignWordsAndStartGame(room);
   }
 }
 
+function assignWordsAndStartGame(room) {
+  const wordPair = mots[Math.floor(Math.random() * mots.length)];
+  const userKeys = Object.keys(roomUsers[room]);
+  const specialUserIndex = Math.floor(Math.random() * userKeys.length);
+  const specialUserId = userKeys[specialUserIndex];
+
+  userKeys.forEach((key, index) => {
+    userWords[room][key] = index === specialUserIndex ? wordPair[1] : wordPair[0];
+    io.to(key).emit("assigned_word", userWords[room][key]);
+  });
+
+  roomUsers[room][specialUserId].isImposter = true;
+  io.to(room).emit("start_chat");
+
+  // Check if starting with only two players
+  if (userKeys.length === 2) {
+    checkForImposterWin(room);
+  }
+}
 function advanceTurn(room) {
-  turnQueue[room].push(turnQueue[room].shift()); // Move current to the end
+  turnQueue[room].push(turnQueue[room].shift());
   updateTurn(room);
 }
 
@@ -150,17 +155,74 @@ function updateTurn(room) {
     io.to(room).emit("turn_update", { username: currentTurnUser });
   }
 }
+
 function countVotes(room) {
   const voteCounts = {};
   Object.values(userVotes[room]).forEach(vote => {
-      voteCounts[vote] = (voteCounts[vote] || 0) + 1;
+    voteCounts[vote] = (voteCounts[vote] || 0) + 1;
   });
-  io.to(room).emit("update_votes", voteCounts);
+  evaluateVotes(room, voteCounts);
 }
-function advanceTurn(room) {
-  turnQueue[room].push(turnQueue[room].shift()); // Rotate the queue
-  updateTurn(room);
+
+function evaluateVotes(room, voteCounts) {
+  let mostVotes = 0;
+  let mostVotedUserId = null;
+
+  for (let userId in voteCounts) {
+    if (voteCounts[userId] > mostVotes) {
+      mostVotes = voteCounts[userId];
+      mostVotedUserId = userId;
+    }
+  }
+
+  if (mostVotedUserId && roomUsers[room][mostVotedUserId]) {
+    if (roomUsers[room][mostVotedUserId].isImposter) {
+      io.to(room).emit("game_over", { winner: "others", imposter: mostVotedUserId });
+      resetGame(room);
+    } else {
+      io.to(mostVotedUserId).emit("you_lost", { message: "vous avez perdu!" });
+      delete roomUsers[room][mostVotedUserId];
+      turnQueue[room] = turnQueue[room].filter(id => id !== mostVotedUserId);
+      broadcastUserList(room);
+      updateTurn(room);
+      io.to(room).emit("reset_voting");
+      checkForImposterWin(room);
+    }
+  } else {
+    io.to(room).emit("error", { message: "Voted user has disconnected or does not exist." });
+  }
+
+  userVotes[room] = {};
 }
+
+function checkForImposterWin(room) {
+  const remainingPlayers = Object.keys(roomUsers[room]);
+  if (remainingPlayers.length === 2) {
+    const imposter = remainingPlayers.find(playerId => roomUsers[room][playerId].isImposter);
+    if (imposter) {
+      // Loop through the remaining players
+      remainingPlayers.forEach(playerId => {
+        if (playerId === imposter) {
+          io.to(playerId).emit("congratulations", { message: "felicitation! vous avez gangner!" });
+                } else {
+          
+          io.to(playerId).emit("game_over1", { message: "vous aver perdu." });
+
+        }
+      });
+      resetGame(room);
+    }
+  }
+}
+
+function resetGame(room) {
+  delete roomUsers[room];
+  delete turnQueue[room];
+  delete userVotes[room];
+  delete turnsTaken[room];
+  delete userWords[room];
+}
+
 server.listen(3001, () => {
   console.log("SERVER RUNNING");
 });

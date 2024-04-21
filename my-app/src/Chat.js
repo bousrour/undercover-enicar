@@ -27,6 +27,16 @@ function Chat({ socket, username, room }) {
   };
 
   useEffect(() => {
+
+    
+    socket.on("congratulations", (data) => {
+      alert(data.message);  // Shows a congratulation message to the winners
+      // Potentially navigate to a new screen or reset the game state here
+    });
+    socket.on("you_lost", (data) => {
+      alert(data.message);  // Or display it in a more user-friendly way
+      // Additional actions, e.g., redirect to a home page or lobby
+  });
     socket.on("enable_voting", () => {
       setEnableVoting(true);
   });
@@ -60,6 +70,19 @@ function Chat({ socket, username, room }) {
     });
     socket.on("assigned_word", (word) => {
       setAssignedWord(word); // Listen to the assigned word event
+      
+  });
+  socket.on("game_over", (data) => {
+    alert(data.message);  // Shows a game over message to the imposter
+    // Potentially navigate to a new screen or reset the game state here
+  });
+  socket.on("game_over1", (data) => {
+    alert(data.message);  // Shows a game over message to the imposter
+    // Potentially navigate to a new screen or reset the game state here
+  });
+  socket.on("reset_voting", () => {
+    setVotes({});
+    setEnableVoting(false);
   });
     return () => {
       socket.off("enable_voting");
@@ -108,23 +131,22 @@ console.log(enableVoting)
                             <p>{currentTurn ? `Tour de ${currentTurn}` : "Waiting..."}</p>
                         </div>
                         <div className="chat-body">
-                            <ScrollToBottom className="message-container">
-                                {messageList.map((messageContent, index) => (
-                                    <div
-                                        key={index}
-                                        className="message"
-                                        id={username === messageContent.author ? "you" : "other"}
-                                    >
-                                        <div className="message-content">
-                                            <p>{messageContent.message}</p>
-                                        </div>
-                                        <div className="message-meta">
-                                            <p id="time">{messageContent.time}</p>
-                                            <p id="author">{messageContent.author}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </ScrollToBottom>
+                        <ScrollToBottom className="message-container">
+  {messageList.map((messageContent, index) => (
+    <div
+      key={index}
+      className="message"
+      id={username === messageContent.author ? "you" : "other"}
+    >
+      <div className="message-content">
+        <p>{messageContent.message}</p>
+      </div>
+      <div className="message-meta">
+        <p>{messageContent.author}</p> {/* Moved this line here for visibility */}
+      </div>
+    </div>
+  ))}
+</ScrollToBottom>
                         </div>
                         <div className="chat-footer">
                             <input
@@ -133,9 +155,9 @@ console.log(enableVoting)
                                 placeholder={isMyTurn ? "Écrivez un message..." : "Attendre votre tour"}
                                 onChange={(e) => setCurrentMessage(e.target.value)}
                                 onKeyPress={(e) => e.key === "Enter" && isMyTurn && sendMessage()}
-                                disabled={!isMyTurn}
+                                disabled={!isMyTurn || enableVoting}
                             />
-                            <button onClick={sendMessage} disabled={!isMyTurn}>&#9658;</button>
+                            <button onClick={sendMessage} disabled={!isMyTurn || enableVoting}>&#9658;</button>
                         </div>
                     </>
                 )}
@@ -158,7 +180,7 @@ console.log(enableVoting)
                                 Voter
                             </Button>
                         )}
-                        <span>Votes: {votes[user.id]}</span>
+                      
                     </div>
                 ))}
             </div>
