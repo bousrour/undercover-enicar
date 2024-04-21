@@ -107,9 +107,9 @@ console.log(userList)
         </>
       )}
     </div>
-   <div> 
+   <div style={{ marginLeft: '200px' }}> 
     <h1>Votre mot</h1>
-    <p>{assignedWord}</p>
+    <Button variant="light">{assignedWord}</Button>
      </div>
    </div>
   );
